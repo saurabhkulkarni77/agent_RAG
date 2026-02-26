@@ -18,12 +18,17 @@ class GeminiEmbeddings(Embeddings):
         self.model = model
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        result = self.client.models.embed_content(
-            model=self.model,
-            contents=texts,
-            config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
-        )
-        return [e.values for e in result.embeddings]
+        embeddings = []
+        # API limit: max 100 texts per batch
+        for i in range(0, len(texts), 100):
+            batch = texts[i:i + 100]
+            result = self.client.models.embed_content(
+                model=self.model,
+                contents=batch,
+                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+            )
+            embeddings.extend([e.values for e in result.embeddings])
+        return embeddings
 
     def embed_query(self, text: str) -> List[float]:
         result = self.client.models.embed_content(
