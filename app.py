@@ -26,7 +26,7 @@ def process_documents(uploaded_files):
     splits = text_splitter.split_documents(all_docs)
 
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/embedding-001", 
+        model="models/text-embedding-004", 
         google_api_key=st.secrets["GEMINI_API_KEY"]
     )
     # Using an ephemeral in-memory Chroma instance
