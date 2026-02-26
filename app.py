@@ -1,4 +1,4 @@
-%%writefile app.py
+
 import streamlit as st
 import google.generativeai as genai
 import streamlit_authenticator as stauth
