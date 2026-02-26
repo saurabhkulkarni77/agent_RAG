@@ -93,7 +93,7 @@ if api_key:
         with st.spinner("Writing SCL..."):
             genai.configure(api_key=api_key)
             # Using the latest workhorse model
-            model = genai.GenerativeModel('gemini-3-flash') 
+            model = genai.GenerativeModel('gemini-2.5-flash') 
             
             prompt = f"""
             Act as a Senior Siemens PLC Developer. Generate a FUNCTION_BLOCK in SCL.
