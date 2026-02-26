@@ -1,0 +1,7 @@
+streamlit
+google-generativeai
+streamlit-authenticator
+langchain-community
+langchain-google-genai 
+langchain-chroma 
+pypdf
