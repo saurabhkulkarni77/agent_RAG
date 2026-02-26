@@ -1,15 +1,36 @@
-
 import streamlit as st
 import google.generativeai as genai
 import streamlit_authenticator as stauth
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_chroma import Chroma
 import tempfile
 import os
+from typing import List
 
-# --- 1. RAG System Functions ---
+
+# --- 1. Custom Embeddings Class (bypasses langchain-google-genai v1beta bug) ---
+class GeminiEmbeddings(Embeddings):
+    """
+    Uses google.generativeai directly, which routes to the stable v1 endpoint
+    and avoids the 404 v1beta error caused by langchain-google-genai.
+    """
+    def __init__(self, api_key: str, model: str = "models/text-embedding-004"):
+        genai.configure(api_key=api_key)
+        self.model = model
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return [
+            genai.embed_content(model=self.model, content=text)["embedding"]
+            for text in texts
+        ]
+
+    def embed_query(self, text: str) -> List[float]:
+        return genai.embed_content(model=self.model, content=text)["embedding"]
+
+
+# --- 2. RAG System Functions ---
 def process_documents(uploaded_files, api_key):
     try:
         all_docs = []
@@ -23,20 +44,16 @@ def process_documents(uploaded_files, api_key):
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         splits = text_splitter.split_documents(all_docs)
-        
-        # FIXED: Updated to 2026 stable model name
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004", 
-            google_api_key=api_key,
-            task_type="retrieval_document"
-        )
-        
+
+        embeddings = GeminiEmbeddings(api_key=api_key)
+
         return Chroma.from_documents(documents=splits, embedding=embeddings)
     except Exception as e:
         st.error(f"Embedding Model Error: {e}")
         return None
 
-# --- 2. Security Audit Engine ---
+
+# --- 3. Security Audit Engine ---
 def run_security_audit(code):
     checks = {
         "Block Structure": "FUNCTION_BLOCK" in code.upper() and "END_FUNCTION_BLOCK" in code.upper(),
@@ -47,7 +64,30 @@ def run_security_audit(code):
     }
     return checks
 
-# --- 3. Simplified Colab Authentication ---
+
+# --- 4. Resolve Gemini API Key ---
+def get_api_key():
+    """
+    Priority: st.secrets > sidebar manual input.
+
+    To configure via Streamlit Secrets, add to .streamlit/secrets.toml:
+        [gemini]
+        api_key = "YOUR_GEMINI_API_KEY"
+    Or paste it in the Secrets section on Streamlit Community Cloud.
+    """
+    try:
+        key = st.secrets["gemini"]["api_key"]
+        if key:
+            return key, True
+    except (KeyError, FileNotFoundError):
+        pass
+
+    key = st.sidebar.text_input("Gemini API Key", type="password",
+                                help="Or add it to .streamlit/secrets.toml")
+    return key, False
+
+
+# --- 5. Authentication ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -63,9 +103,14 @@ if not st.session_state.authenticated:
             st.error("Invalid Credentials")
     st.stop()
 
-# --- 4. Main App Logic ---
+
+# --- 6. Main App ---
 st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"authenticated": False}))
-api_key = st.sidebar.text_input("Gemini API Key", type="password")
+
+api_key, from_secrets = get_api_key()
+
+if from_secrets:
+    st.sidebar.success("🔑 API key loaded from Secrets", icon="✅")
 
 if api_key:
     st.sidebar.title("📚 Knowledge Base")
@@ -80,7 +125,7 @@ if api_key:
 
     st.title("🤖 Siemens SCL FB Agent")
     st.markdown("Generates safety-validated Siemens S7-1500 logic.")
-    
+
     req = st.text_area("Describe Function (e.g., Lead/Lag Pump Control):")
 
     if st.button("Generate Code"):
@@ -92,14 +137,13 @@ if api_key:
 
         with st.spinner("Writing SCL..."):
             genai.configure(api_key=api_key)
-            # Using the latest workhorse model
-            model = genai.GenerativeModel('gemini-3-flash') 
-            
+            model = genai.GenerativeModel('gemini-2.5-flash')
+
             prompt = f"""
             Act as a Senior Siemens PLC Developer. Generate a FUNCTION_BLOCK in SCL.
             CONTEXT FROM MANUALS: {context}
             REQUIREMENT: {req}
-            
+
             RULES:
             1. Start with FUNCTION_BLOCK "FB_Generated_Logic"
             2. First line after BEGIN: IF NOT "Global_Safety_DB".All_Systems_OK THEN RETURN; END_IF;
@@ -107,7 +151,7 @@ if api_key:
             4. Logic must require i_AI_Req AND i_HMI_Confirm AND i_System_Ready.
             5. Output ONLY raw SCL code. No markdown.
             """
-            
+
             response = model.generate_content(prompt)
             scl_code = response.text.replace("```scl", "").replace("```", "").strip()
             st.session_state.scl_code = scl_code
@@ -123,4 +167,4 @@ if api_key:
             for check, passed in audit.items():
                 st.write(f"{'✅' if passed else '❌'} {check}")
 else:
-    st.warning("Please enter your Gemini API Key in the sidebar.")
+    st.warning("⚠️ No Gemini API key found. Add it to `.streamlit/secrets.toml` or enter it in the sidebar.")
