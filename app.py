@@ -1,4 +1,3 @@
-
 import streamlit as st
 import google.generativeai as genai
 import streamlit_authenticator as stauth
@@ -23,18 +22,18 @@ def process_documents(uploaded_files, api_key):
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         splits = text_splitter.split_documents(all_docs)
-        
-        # FIXED: Updated to 2026 stable model name
+
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004", 
+            model="models/text-embedding-004",
             google_api_key=api_key,
             task_type="retrieval_document"
         )
-        
+
         return Chroma.from_documents(documents=splits, embedding=embeddings)
     except Exception as e:
         st.error(f"Embedding Model Error: {e}")
         return None
+
 
 # --- 2. Security Audit Engine ---
 def run_security_audit(code):
@@ -47,7 +46,36 @@ def run_security_audit(code):
     }
     return checks
 
-# --- 3. Simplified Colab Authentication ---
+
+# --- 3. Resolve Gemini API Key ---
+# Priority: st.secrets > sidebar manual input
+def get_api_key():
+    """
+    Reads the Gemini API key from Streamlit Secrets first.
+    Falls back to a manual sidebar input if not configured.
+
+    To use Streamlit Secrets, add the following to your
+    .streamlit/secrets.toml file (local) or the Secrets section
+    in the Streamlit Community Cloud dashboard:
+
+        [gemini]
+        api_key = "YOUR_GEMINI_API_KEY"
+    """
+    try:
+        # Attempt to load from secrets.toml / Cloud Secrets
+        key = st.secrets["gemini"]["api_key"]
+        if key:
+            return key, True   # (key, loaded_from_secrets)
+    except (KeyError, FileNotFoundError):
+        pass
+
+    # Fallback: manual sidebar entry
+    key = st.sidebar.text_input("Gemini API Key", type="password",
+                                help="Or add it to .streamlit/secrets.toml")
+    return key, False
+
+
+# --- 4. Simplified Authentication ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -63,9 +91,14 @@ if not st.session_state.authenticated:
             st.error("Invalid Credentials")
     st.stop()
 
-# --- 4. Main App Logic ---
+
+# --- 5. Main App Logic ---
 st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"authenticated": False}))
-api_key = st.sidebar.text_input("Gemini API Key", type="password")
+
+api_key, from_secrets = get_api_key()
+
+if from_secrets:
+    st.sidebar.success("🔑 API key loaded from Secrets", icon="✅")
 
 if api_key:
     st.sidebar.title("📚 Knowledge Base")
@@ -80,7 +113,7 @@ if api_key:
 
     st.title("🤖 Siemens SCL FB Agent")
     st.markdown("Generates safety-validated Siemens S7-1500 logic.")
-    
+
     req = st.text_area("Describe Function (e.g., Lead/Lag Pump Control):")
 
     if st.button("Generate Code"):
@@ -92,14 +125,13 @@ if api_key:
 
         with st.spinner("Writing SCL..."):
             genai.configure(api_key=api_key)
-            # Using the latest workhorse model
-            model = genai.GenerativeModel('gemini-2.5-flash') 
-            
+            model = genai.GenerativeModel('gemini-2.5-flash')
+
             prompt = f"""
             Act as a Senior Siemens PLC Developer. Generate a FUNCTION_BLOCK in SCL.
             CONTEXT FROM MANUALS: {context}
             REQUIREMENT: {req}
-            
+
             RULES:
             1. Start with FUNCTION_BLOCK "FB_Generated_Logic"
             2. First line after BEGIN: IF NOT "Global_Safety_DB".All_Systems_OK THEN RETURN; END_IF;
@@ -107,7 +139,7 @@ if api_key:
             4. Logic must require i_AI_Req AND i_HMI_Confirm AND i_System_Ready.
             5. Output ONLY raw SCL code. No markdown.
             """
-            
+
             response = model.generate_content(prompt)
             scl_code = response.text.replace("```scl", "").replace("```", "").strip()
             st.session_state.scl_code = scl_code
@@ -123,4 +155,4 @@ if api_key:
             for check, passed in audit.items():
                 st.write(f"{'✅' if passed else '❌'} {check}")
 else:
-    st.warning("Please enter your Gemini API Key in the sidebar.")
+    st.warning("⚠️ No Gemini API key found. Add it to `.streamlit/secrets.toml` or enter it in the sidebar.")
