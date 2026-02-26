@@ -25,9 +25,15 @@ def process_documents(uploaded_files):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
     splits = text_splitter.split_documents(all_docs)
 
+    # embeddings = GoogleGenerativeAIEmbeddings(
+    #     model="models/text-embedding-004", 
+    #     google_api_key=st.secrets["GEMINI_API_KEY"]
+    # )
+    # UPDATE THIS BLOCK IN YOUR app.py
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004", 
-        google_api_key=st.secrets["GEMINI_API_KEY"]
+    model="models/embedding-001", # Universal stable endpoint
+    google_api_key=st.secrets["GEMINI_API_KEY"],
+    task_type="retrieval_document" # Explicitly tell the API this is for a RAG doc
     )
     # Using an ephemeral in-memory Chroma instance
     vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
