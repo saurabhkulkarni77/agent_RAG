@@ -25,8 +25,7 @@ def process_documents(uploaded_files, api_key):
 
         embeddings = GoogleGenerativeAIEmbeddings(
             model="models/text-embedding-004",
-            google_api_key=api_key,
-            task_type="retrieval_document"
+            google_api_key=api_key
         )
 
         return Chroma.from_documents(documents=splits, embedding=embeddings)
